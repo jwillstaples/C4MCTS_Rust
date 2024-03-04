@@ -1,7 +1,7 @@
 use crate::game_state_c4::*;
 use indicatif::ProgressBar; 
 
-use rand::{thread_rng, Rng};
+use rand::*;
 
 // use std::alloc::{alloc, Layout};
 
@@ -119,7 +119,7 @@ impl GTree {
     }
 
     fn evaluate_leaf(&self, leaf_ind: usize) -> f64 {
-        return rollout(&self.get(leaf_ind).unwrap().game_state);
+        return self.rollout(&self.get(leaf_ind).unwrap().game_state);
     }
 
     fn conceive_children(&mut self, leaf_ind: usize, book_mark: usize) { 
@@ -150,6 +150,26 @@ impl GTree {
             }
         }
          
+    }
+
+    pub fn rollout(&self, game_state: &GSC4) -> f64 { 
+
+        let mut rng = thread_rng(); 
+
+        let mut temp_state: GSC4 = game_state.clone(); 
+        loop {
+            let legals = temp_state.legal_moves_vec();
+            if legals.len() > 0 {
+                // println!("legals.len() = {}", legals.len());
+                let mv = legals[rng.gen_range(0..legals.len())];
+                if temp_state.winning_move(mv) { 
+                    return if game_state.is_player_one() != temp_state.is_player_one() {-1.0} else {1.0};  
+                } temp_state = temp_state.move_from_int(mv);
+            } else { 
+                assert!(temp_state.board_full());
+                break;
+            }
+        } return 0.0;
     }
 
     pub fn make_move(&mut self) -> usize { 
@@ -188,26 +208,6 @@ impl GTree {
             return favorite_child.unwrap().own_ind - 1; 
         }
     }
-}
-
-pub fn rollout(game_state: &GSC4) -> f64 { 
-
-    let mut rng = thread_rng();
-    let mut temp_state: GSC4 = game_state.clone(); 
-    loop {
-        let legals = temp_state.legal_moves_vec();
-        if legals.len() > 0 {
-            // println!("legals.len() = {}", legals.len());
-            let mv_ind = rng.gen_range(0..legals.len());
-            let mv = legals[mv_ind];
-            if temp_state.winning_move(mv) { 
-                return if game_state.is_player_one() != temp_state.is_player_one() {-1.0} else {1.0};  
-            } temp_state = temp_state.move_from_int(mv);
-        } else { 
-            assert!(temp_state.board_full());
-            break;
-        }
-    } return 0.0;
 }
 
 fn main() { 
