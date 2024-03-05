@@ -80,31 +80,34 @@ impl GTree {
 
     fn backpropagate(&mut self, node_ind: usize, eval: f64) {
         let mut temp_index = node_ind; 
+        let mut same_mover: bool = true; 
         loop {
             let temp_node = self.get_mut(temp_index).unwrap();
-            temp_node.cum_eval += eval; 
+            temp_node.cum_eval += if same_mover {eval} else {-eval}; 
             temp_node.num_visits += 1.0; 
             if temp_node.parent_ind.is_none() { 
                 break 
             } else {
                 temp_index = temp_node.parent_ind.unwrap(); 
+                same_mover = ! same_mover; 
             }
         }
     }
 
-    fn select_leaf(&self) -> usize { 
+    fn select_leaf(&self) -> (usize, bool) { // returns index of selected node and whether or not this position is terminal
         let mut candidate_node_ind: usize = 0; // sets candidate node as the root node 
         loop { 
             let candidate_node_ptr = self.get(candidate_node_ind).unwrap();
             if candidate_node_ptr.first_child_ind.is_none() {
-                return candidate_node_ptr.own_ind
+                return (candidate_node_ptr.own_ind, false)
             } else {
                 let mut favorite_child_ind: usize = 0; // arbitrary value, should never be read
                 let mut max_score = -f64::INFINITY; 
                 for i in 1..7 { 
-                    let next_child = self.get((*candidate_node_ptr).first_child_ind.unwrap() + i); 
+                    if candidate_node_ptr.game_state.winning_move(i) { return (candidate_node_ptr.own_ind, true) } // indicates current candidate is winning 
+                    let next_child: Option<&PNode> = self.get(candidate_node_ptr.first_child_ind.unwrap() + i); 
                     if next_child.is_none() { continue } 
-                    let next_score = 1.5 * ((*candidate_node_ptr).num_visits).sqrt() / (1.0 + next_child.unwrap().num_visits) - (next_child.unwrap().value_score());
+                    let next_score = 1.5 * (candidate_node_ptr.num_visits).sqrt() / (1.0 + next_child.unwrap().num_visits) - (next_child.unwrap().value_score());
                     if max_score < next_score {
                         favorite_child_ind = next_child.unwrap().own_ind; 
                         max_score = next_score;
@@ -112,7 +115,7 @@ impl GTree {
                 } if max_score > -f64::INFINITY {
                     candidate_node_ind = favorite_child_ind; 
                 } else { 
-                    return candidate_node_ptr.own_ind; // accounts for possibility of their being no legal moves 
+                    return (candidate_node_ptr.own_ind, true); // accounts for possibility of their being no legal moves 
                 }
             }
         }
@@ -124,8 +127,11 @@ impl GTree {
 
     fn conceive_children(&mut self, leaf_ind: usize, book_mark: usize) { 
         let leaf: &mut PNode = self.get_mut(leaf_ind).unwrap(); 
-        assert!(leaf.first_child_ind.is_none());
-        leaf.first_child_ind = Some(book_mark);
+        if leaf.first_child_ind.is_none(){
+            leaf.first_child_ind = Some(book_mark);
+        } else { 
+            panic!("attempting to expand non-leaf PNode!")
+        }
     }
 
     fn expand_leaf(&mut self, leaf_ind: usize, book_mark: usize) {
@@ -149,7 +155,6 @@ impl GTree {
                 self.set(None);
             }
         }
-         
     }
 
     pub fn rollout(&self, game_state: &GSC4) -> f64 { 
@@ -158,18 +163,18 @@ impl GTree {
 
         let mut temp_state: GSC4 = game_state.clone(); 
         loop {
-            let legals = temp_state.legal_moves_vec();
-            if legals.len() > 0 {
-                // println!("legals.len() = {}", legals.len());
-                let mv = legals[rng.gen_range(0..legals.len())];
-                if temp_state.winning_move(mv) { 
-                    return if game_state.is_player_one() != temp_state.is_player_one() {-1.0} else {1.0};  
-                } temp_state = temp_state.move_from_int(mv);
+            let legals: Vec<usize> = temp_state.legal_moves_vec();
+            if legals.len() > 0 { 
+                for mv in legals.iter() { 
+                    if temp_state.winning_move(*mv) { 
+                        return if game_state.is_player_one() != temp_state.is_player_one() {-1.0} else {1.0};
+                    }
+                } temp_state = temp_state.move_from_int(legals[rng.gen_range(0..legals.len())]);
             } else { 
                 assert!(temp_state.board_full());
-                break;
+                return 0.0;
             }
-        } return 0.0;
+        }
     }
 
     pub fn make_move(&mut self) -> usize { 
@@ -181,25 +186,33 @@ impl GTree {
             bar.inc(1);
 
             // println!("checkpoint 1");
-            let mut next_node_ind = self.select_leaf(); 
+            let (next_node_ind, nn_terminal) = self.select_leaf(); 
             // println!("checkpoint 2");
             let eval = self.evaluate_leaf(next_node_ind); 
             // println!("checkpoint 3");
             self.backpropagate(next_node_ind, eval);
             // println!("checkpoint 4");
-            self.expand_leaf(next_node_ind, self.game_arr.len());
+            if ! nn_terminal { 
+                self.expand_leaf(next_node_ind, self.game_arr.len());
+            }
             // println!("checkpoint 5");
 
         }
+        // should play winning move if available
+        let root_node = self.get(0).unwrap(); 
+        for mv in root_node.game_state.legal_moves_vec() { 
+            if root_node.game_state.winning_move(mv) { return mv; }
+        }
+
         let mut favorite_child: Option<&PNode> = None; 
-        let mut max_score: f64 = -f64::INFINITY; 
+        let mut min_score: f64 = f64::INFINITY; 
         for i in 1..=7 { 
             let temp_node: Option<&PNode> = self.get(i); 
             if temp_node.is_none() { 
                 continue;
-            } else if temp_node.unwrap().value_score() > max_score { 
+            } else if temp_node.unwrap().value_score() < min_score { 
                 favorite_child = temp_node; 
-                max_score = temp_node.unwrap().value_score();
+                min_score = temp_node.unwrap().value_score();
             }
         }
         if favorite_child.is_none() { 

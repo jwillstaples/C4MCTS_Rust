@@ -10,7 +10,7 @@ use std::io;
 
 
 fn main() {
-    let num_positions: usize = 1000000;
+    let num_positions: usize = 100000;
     let starting_position = GSC4::make_blank();
     let mut game_tree: GTree; 
     // implement tree recycling 
